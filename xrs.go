@@ -483,3 +483,15 @@ func (x *XRS) Split(data []byte) ([][]byte, error) {
 
 	return dst, nil
 }
+
+
+// Copied from line 134 of https://github.com/klauspost/reedsolomon/blob/master/reedsolomon.go
+// ErrInvShardNum will be returned by New, if you attempt to create
+// an Encoder with less than one data shard or less than zero parity
+// shards.
+var ErrInvShardNum = errors.New("cannot create Encoder with less than one data shard or less than zero parity shards")
+
+// ErrMaxShardNum will be returned by New, if you attempt to create an
+// Encoder where data and parity shards are bigger than the order of
+// GF(2^8).
+var ErrMaxShardNum = errors.New("cannot create Encoder with more than 256 data+parity shards")

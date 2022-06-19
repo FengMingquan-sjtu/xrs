@@ -298,6 +298,37 @@ func (x *XRS) Reconst(vects [][]byte, dpHas, needReconst []int) (err error) {
 	return nil
 }
 
+
+// Wrapping function for MINIO.
+// Reconstruct only data vectors, without parity.
+func (x *XRS) ReconstructData(vects [][]byte) error {
+	dpHas := make([]int, 0)
+	needReconst := make([]int, 0)
+	for i := 0; i < x.RS.DataNum+x.RS.ParityNum; i++ {
+		if len(vects[i]) != 0 { // use vector size to determine data lost
+			dpHas = append(dpHas, i)
+		} else if i < x.RS.DataNum { // only need to reconst data.
+			needReconst = append(needReconst, i)
+		}
+	}
+	return x.Reconst(vects, dpHas, needReconst)
+}
+
+// Wrapping function for MINIO.
+// Reconstruct both data and parity
+func (x *XRS) Reconstruct(vects [][]byte) error {
+	dpHas := make([]int, 0)
+	needReconst := make([]int, 0)
+	for i := 0; i < x.RS.DataNum+x.RS.ParityNum; i++ {
+		if len(vects[i]) != 0 { // use vector size to determine data lost
+			dpHas = append(dpHas, i)
+		} else { 
+			needReconst = append(needReconst, i)
+		}
+	}
+	return x.Reconst(vects, dpHas, needReconst)
+}
+
 // retrieveRS retrieves b_parity_vects(if has) to RS codes
 // by XOR itself and a_vects in XORSet.
 func (x *XRS) retrieveRS(vects [][]byte, dpHas []int) (err error) {
@@ -393,4 +424,62 @@ func isIn(e int, s []int) bool {
 		}
 	}
 	return false
+}
+
+
+// Copied from line 1171 of https://github.com/klauspost/reedsolomon/blob/master/reedsolomon.go
+// replace: r.DataShards --> x.RS.DataNum,  r.Shards --> TolNum(:=x.RS.DataNum+x.RS.ParityNum)
+// Split a data slice into the number of shards given to the encoder,
+// and create empty parity shards if necessary.
+//
+// The data will be split into equally sized shards.
+// If the data size isn't divisible by the number of shards,
+// the last shard will contain extra zeros.
+//
+// There must be at least 1 byte otherwise ErrShortData will be
+// returned.
+//
+// The data will not be copied, except for the last shard, so you
+// should not modify the data of the input slice afterwards.
+func (x *XRS) Split(data []byte) ([][]byte, error) {
+	if len(data) == 0 {
+		return nil, ErrShortData
+	}
+	dataLen := len(data)
+	// Calculate number of bytes per data shard.
+	perShard := (len(data) + x.RS.DataNum - 1) / x.RS.DataNum
+
+	if cap(data) > len(data) {
+		data = data[:cap(data)]
+	}
+
+	// Only allocate memory if necessary
+	var padding []byte
+	TolNum := x.RS.DataNum+x.RS.ParityNum
+	if len(data) < (TolNum * perShard) {
+		// calculate maximum number of full shards in `data` slice
+		fullShards := len(data) / perShard
+		padding = make([]byte, TolNum * perShard - perShard * fullShards)
+		copy(padding, data[perShard*fullShards:])
+		data = data[0 : perShard*fullShards]
+	} else {
+		for i := dataLen; i < dataLen+x.RS.DataNum; i++ {
+			data[i] = 0
+		}
+	}
+
+	// Split into equal-length shards.
+	dst := make([][]byte, TolNum)
+	i := 0
+	for ; i < len(dst) && len(data) >= perShard; i++ {
+		dst[i] = data[:perShard:perShard]
+		data = data[perShard:]
+	}
+
+	for j := 0; i+j < len(dst); j++ {
+		dst[i+j] = padding[:perShard:perShard]
+		padding = padding[perShard:]
+	}
+
+	return dst, nil
 }

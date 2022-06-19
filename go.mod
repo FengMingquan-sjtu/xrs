@@ -1,4 +1,4 @@
-module github.com/templexxx/xrs
+module github.com/FengMingquan-sjtu/xrs
 
 go 1.13
 

@@ -35,6 +35,67 @@ import (
 	xor "github.com/templexxx/xorsimd"
 )
 
+//copy from https://github.com/klauspost/reedsolomon/blob/master/reedsolomon.go
+// Encoder is an interface to encode Reed-Salomon parity sets for your data.
+type Encoder interface {
+	// Encode parity for a set of data shards.
+	// Input is 'shards' containing data shards followed by parity shards.
+	// The number of shards must match the number given to New().
+	// Each shard is a byte array, and they must all be the same size.
+	// The parity shards will always be overwritten and the data shards
+	// will remain the same, so it is safe for you to read from the
+	// data shards while this is running.
+	Encode(shards [][]byte) error
+
+	// Reconstruct will recreate the missing shards if possible.
+	//
+	// Given a list of shards, some of which contain data, fills in the
+	// ones that don't have data.
+	//
+	// The length of the array must be equal to the total number of shards.
+	// You indicate that a shard is missing by setting it to nil or zero-length.
+	// If a shard is zero-length but has sufficient capacity, that memory will
+	// be used, otherwise a new []byte will be allocated.
+	//
+	// If there are too few shards to reconstruct the missing
+	// ones, ErrTooFewShards will be returned.
+	//
+	// The reconstructed shard set is complete, but integrity is not verified.
+	// Use the Verify function to check if data set is ok.
+	Reconstruct(shards [][]byte) error
+
+	// ReconstructData will recreate any missing data shards, if possible.
+	//
+	// Given a list of shards, some of which contain data, fills in the
+	// data shards that don't have data.
+	//
+	// The length of the array must be equal to Shards.
+	// You indicate that a shard is missing by setting it to nil or zero-length.
+	// If a shard is zero-length but has sufficient capacity, that memory will
+	// be used, otherwise a new []byte will be allocated.
+	//
+	// If there are too few shards to reconstruct the missing
+	// ones, ErrTooFewShards will be returned.
+	//
+	// As the reconstructed shard set may contain missing parity shards,
+	// calling the Verify function is likely to fail.
+	ReconstructData(shards [][]byte) error
+
+	// Split a data slice into the number of shards given to the encoder,
+	// and create empty parity shards.
+	//
+	// The data will be split into equally sized shards.
+	// If the data size isn't dividable by the number of shards,
+	// the last shard will contain extra zeros.
+	//
+	// There must be at least 1 byte otherwise ErrShortData will be
+	// returned.
+	//
+	// The data will not be copied, except for the last shard, so you
+	// should not modify the data of the input slice afterwards.
+	Split(data []byte) ([][]byte, error)
+}
+
 // XRS X-Reed-Solomon Codes receiver.
 type XRS struct {
 	// RS is the backend of XRS>
@@ -449,6 +510,10 @@ func (x *XRS) Split(data []byte) ([][]byte, error) {
 	// Calculate number of bytes per data shard.
 	perShard := (len(data) + x.RS.DataNum - 1) / x.RS.DataNum
 
+	if perShard&1 != 0 {
+		perShard += 1  //vector size must be even
+	}
+
 	if cap(data) > len(data) {
 		data = data[:cap(data)]
 	}
@@ -495,3 +560,7 @@ var ErrInvShardNum = errors.New("cannot create Encoder with less than one data s
 // Encoder where data and parity shards are bigger than the order of
 // GF(2^8).
 var ErrMaxShardNum = errors.New("cannot create Encoder with more than 256 data+parity shards")
+
+// ErrShortData will be returned by Split(), if there isn't enough data
+// to fill the number of shards.
+var ErrShortData = errors.New("not enough data to fill the number of requested shards")
